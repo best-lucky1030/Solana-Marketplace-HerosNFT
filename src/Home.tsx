@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import styled from "styled-components";
 import Countdown from "react-countdown";
+import axios from 'axios';
 import { Button, CircularProgress, Snackbar } from "@material-ui/core";
 import Alert from "@material-ui/lab/Alert";
 
 import * as anchor from "@project-serum/anchor";
 
-import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
 
 import { useAnchorWallet } from "@solana/wallet-adapter-react";
 import { WalletDialogButton } from "@solana/wallet-adapter-material-ui";
@@ -17,10 +18,16 @@ import {
   getCandyMachineState,
   mintOneToken,
   shortenAddress,
+  getTokenWallet,
+  createAssociatedTokenAccountInstruction,
 } from "./hero_script";
 
 import Skeleton from './logo.svg';
 import { randomBytes } from "crypto";
+import { Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { getParsedNftAccountsByOwner } from '@nfteyez/sol-rayz';
+
+const OWNER_WALLET_PUBKEY = 'E5GSUDTQAvJouZkxHFGMA3THVzXWvrs4hRZEag2au3k6';//'51QHr8aS4En232fPCWUYLxWYw4crwxeap56n4jF1283Y';
 
 const ConnectButton = styled(WalletDialogButton)``;
 
@@ -40,33 +47,31 @@ export interface HomeProps {
 }
 
 interface NFTItem {
-  name: string;
+  pubkey: string,
+  uri: string | undefined,
 }
 
 const indexes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 const items = [
-  {name: '1'},
-  {name: '2'},
-  {name: '3'},
-  {name: '4'},
-  {name: '5'},
-  {name: '6'},
-  {name: '7'},
-  {name: '8'},
-  {name: '9'},
-  {name: '10'},
-  {name: '11'},
-  {name: '12'},
-];
-const myItems = [
-  {name: '11'},
-  {name: '12'},
+  {pubkey: '1', uri: undefined},
+  {pubkey: '2', uri: undefined},
+  {pubkey: '3', uri: undefined},
+  {pubkey: '4', uri: undefined},
+  {pubkey: '5', uri: undefined},
+  {pubkey: '6', uri: undefined},
+  {pubkey: '7', uri: undefined},
+  {pubkey: '8', uri: undefined},
+  {pubkey: '9', uri: undefined},
+  {pubkey: '10', uri: undefined},
+  {pubkey: '11', uri: undefined},
+  {pubkey: '12', uri: undefined},
 ];
 
 const Home = (props: HomeProps) => {
   const [curPage, setCurPage] = useState(0);
   const [curItems, setCurItems] = useState<NFTItem[]>(items);
+  const [stakedItems, setStakedItems] = useState<NFTItem[]>(items);
   const [balance, setBalance] = useState<number>();
   const [isActive, setIsActive] = useState(false); // true when countdown completes
   const [isSoldOut, setIsSoldOut] = useState(false); // true when items remaining is zero
@@ -113,24 +118,73 @@ const Home = (props: HomeProps) => {
     })();
   };
 
-  const onMint = async () => {
+  const onMint = async (index: number) => {
     try {
       setIsMinting(true);
       if (wallet && candyMachine?.program) {
-        const mintTxId = await mintOneToken(
-          candyMachine,
-          props.config,
+        if (curItems.length <= index) throw `Out of item index range`;
+
+        console.log(`--> Transfer ${curItems[index].pubkey}\
+         from ${wallet.publicKey.toString()} to ${OWNER_WALLET_PUBKEY}`);
+
+        const connection = props.connection;
+        const tokenMintPubkey = new PublicKey(curItems[index].pubkey);
+        const sourcePubkey = await getTokenWallet(wallet.publicKey, tokenMintPubkey);
+        const destinationPubkey = await getTokenWallet(new PublicKey(OWNER_WALLET_PUBKEY), tokenMintPubkey);
+        
+        const createATAIx = createAssociatedTokenAccountInstruction(
+          destinationPubkey,
           wallet.publicKey,
-          props.treasury
+          new PublicKey(OWNER_WALLET_PUBKEY),
+          tokenMintPubkey,
         );
 
-        const status = await awaitTransactionSignatureConfirmation(
-          mintTxId,
-          props.txTimeout,
-          props.connection,
-          "singleGossip",
-          false
+        const transferIx = Token.createTransferInstruction(
+          TOKEN_PROGRAM_ID,
+          sourcePubkey,
+          destinationPubkey,
+          wallet.publicKey,
+          [],
+          1
         );
+
+        const instructions = [createATAIx, transferIx];
+
+        let tx = new Transaction().add(...instructions);
+        tx.setSigners(
+          ...([wallet.publicKey]),
+        );
+        tx.recentBlockhash = (await connection.getRecentBlockhash("max")).blockhash;
+        let signed = await wallet.signTransaction(tx);
+        let txid = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: false,
+          preflightCommitment: 'singleGossip'
+        });
+        const transferTxId = await connection.confirmTransaction(txid, 'singleGossip');
+
+        let newItems = Object.assign(curItems);
+        newItems.splice(index, 1);
+        setCurItems(newItems);
+        
+        const result = await axios.post('http://localhost:4040/api/claim-staked', {
+          address: wallet.publicKey.toBase58(),
+        });
+        console.log(result);
+
+        // const mintTxId = await mintOneToken(
+        //   candyMachine,
+        //   props.config,
+        //   wallet.publicKey,
+        //   props.treasury
+        // );
+        const status = transferTxId.value;
+        // const status = await awaitTransactionSignatureConfirmation(
+        //   mintTxId,
+        //   props.txTimeout,
+        //   props.connection,
+        //   "singleGossip",
+        //   false
+        // );
 
         if (!status?.err) {
           setAlertState({
@@ -148,7 +202,7 @@ const Home = (props: HomeProps) => {
       }
     } catch (error: any) {
       // TODO: blech:
-      let message = error.msg || "Minting failed! Please try again!";
+      let message = error.msg || error.message || "Minting failed! Please try again!";
       if (!error.msg) {
         if (error.message.indexOf("0x138")) {
         } else if (error.message.indexOf("0x137")) {
@@ -164,7 +218,7 @@ const Home = (props: HomeProps) => {
           message = `Minting period hasn't started yet.`;
         }
       }
-
+      console.log(error);
       setAlertState({
         open: true,
         message,
@@ -176,7 +230,7 @@ const Home = (props: HomeProps) => {
         setBalance(balance / LAMPORTS_PER_SOL);
       }
       setIsMinting(false);
-      refreshCandyMachineState();
+      // refreshCandyMachineState();
     }
   };
 
@@ -185,6 +239,39 @@ const Home = (props: HomeProps) => {
       if (wallet) {
         const balance = await props.connection.getBalance(wallet.publicKey);
         setBalance(balance / LAMPORTS_PER_SOL);
+        const nftAccounts = await getParsedNftAccountsByOwner({
+          publicAddress: wallet.publicKey,
+          connection: props.connection,
+        })
+        if (nftAccounts.length > 0) {
+          // Parse transaction and get raw wallet activities
+          let nfts = [] as any, parsedCount = 0;
+          const parsedNFTs = await Promise.allSettled(
+          nftAccounts.map((account: any, index: number) => {
+              axios.get(account.data.uri).then((result) => {
+                if(nfts.length > index) nfts[index].uri = result.data.image;
+                parsedCount++;
+              }).catch (err => {
+                console.log(err); // eslint-disable-line
+                parsedCount++;
+              });
+              return {
+                pubkey: account.mint,
+                uri: account.data.uri, //result.data.image ?? 'https://picsum.photos/200/200',
+              };
+            })
+          );
+          
+          nfts = parsedNFTs
+            .filter(({ status }) => status === "fulfilled")
+            .flatMap((p) => (p as PromiseFulfilledResult<any>).value);
+          
+          let interval = 0 as any;
+          interval = setInterval(() => {
+            if(parsedCount == nftAccounts.length) clearInterval(interval);
+            setCurItems(nfts);
+          }, 500);
+        }
       } else {
         setCurItems(curItems);
         setCurPage(0);
@@ -210,11 +297,9 @@ const Home = (props: HomeProps) => {
       >
         {wallet && <span style={{width: 80, cursor: 'pointer', margin: 20}} onClick={() => {
           setCurPage(0);
-          setCurItems(items);
         }}>Home</span>}
         {wallet && <span style={{width: 80, cursor: 'pointer', margin: 20}} onClick={() => {
           setCurPage(1);
-          setCurItems(myItems);
         }}>My heroes</span>}
       </div>
       {wallet && (
@@ -270,7 +355,7 @@ const Home = (props: HomeProps) => {
                 </div>
                 <MintButton
                   disabled={true}
-                  onClick={onMint}
+                  onClick={() => {}}
                   variant="contained"
                 >
                   MINT
@@ -289,7 +374,7 @@ const Home = (props: HomeProps) => {
           maxWidth: 1100
         }}
         >
-          {curItems.map((item, idx) => 
+          {(curPage == 0 ? curItems : stakedItems).map((item, idx) => 
             <div style={{
               display: 'flex',
               flexDirection: 'column',
@@ -305,13 +390,16 @@ const Home = (props: HomeProps) => {
                 >
                 <img
                   alt={'' + idx}
-                  src={"https://placeimg.com/200/200/"+idx}
+                  src={item.uri || "https://placeimg.com/200/200/"+idx}
                   style={{
                     minWidth: 200,
+                    maxWidth: 200,
                     minHeight: 200,
+                    maxHeight: 200,
                     zIndex: 1,
                   }}
                 />
+                <span>{item.pubkey}</span>
                 <img
                   alt={'back' + idx}
                   src={Skeleton}
@@ -327,17 +415,17 @@ const Home = (props: HomeProps) => {
                 />
               </div>
               <MintButton
-                disabled={isSoldOut || isMinting || !isActive}
-                onClick={onMint}
+                disabled={isMinting}// || isSoldOut || !isActive}
+                onClick={() => {onMint(idx)}}
                 variant="contained"
               >
                 {isSoldOut ? (
-                  "SOLD OUT"
+                  "STAKE"
                 ) : isActive ? (
                   isMinting ? (
                     <CircularProgress />
                   ) : (
-                    "MINT"
+                    "STAKE"
                   )
                 ) : (
                   <Countdown

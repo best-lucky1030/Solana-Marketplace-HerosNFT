@@ -121,7 +121,7 @@ export const awaitTransactionSignatureConfirmation = async (
   return status;
 }
 
-/* export */ const createAssociatedTokenAccountInstruction = (
+export const createAssociatedTokenAccountInstruction = (
   associatedTokenAddress: anchor.web3.PublicKey,
   payer: anchor.web3.PublicKey,
   walletAddress: anchor.web3.PublicKey,
@@ -228,7 +228,7 @@ const getMetadata = async (
   )[0];
 };
 
-const getTokenWallet = async (
+export const getTokenWallet = async (
   wallet: anchor.web3.PublicKey,
   mint: anchor.web3.PublicKey
 ) => {
