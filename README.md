@@ -1,8 +1,8 @@
-# Solana_Marketplace_HerosNFT
+# Solana_Marketplace_HeroesNFT
 
-The Heros NFT Marketplace Boilerplate project is designed to let users fork, customize, and deploy their own nft marketplace app to a custom domain, ultra fast.
+The Heroes NFT Marketplace Boilerplate project is designed to let users fork, customize, and deploy their own nft marketplace app to a custom domain, ultra fast.
 
-The Heros NFT Marketplace Boilerplate project is meant to be as simple and usable as possible, accessible to everyone from long-time crypto devs to junior React devs with a vague interest in NFTs. Our goal is to empower users to create their own front ends to display, sell, and manage their NFTs as simply as possible by just updating a few styled components and following a well-documented process for setup and shipping.
+The Heroes NFT Marketplace Boilerplate project is meant to be as simple and usable as possible, accessible to everyone from long-time crypto devs to junior React devs with a vague interest in NFTs. Our goal is to empower users to create their own front ends to display, sell, and manage their NFTs as simply as possible by just updating a few styled components and following a well-documented process for setup and shipping.
 
 ## Getting Set Up
 
